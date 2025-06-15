@@ -113,11 +113,25 @@ class FFmpegStreamChannel {
 	int init_rknn2();
 
 	// Hardware acceleration helper functions
-	int process_frame_hardware(int fd, int src_w, int src_h);
-	int process_frame_software_fallback(AVFrame* frame, int src_w, int src_h);
+	int process_frame_hardware(int fd, int src_w, int src_h, int src_pitch);
+	int process_frame_software_fallback(AVFrame* frame, int src_w, int src_h, int src_pitch);
 	void yuv420p_to_rgb888(const uint8_t* yuv_data, uint8_t* rgb_data, int width, int height);
 	void yuv420p_to_bgr888(const uint8_t* yuv_data, uint8_t* bgr_data, int width, int height);
+	void nv12_to_rgb888(const uint8_t* nv12_data, uint8_t* rgb_data, int width, int height);
+	void nv12_to_bgr888(const uint8_t* nv12_data, uint8_t* bgr_data, int width, int height);
+
+	// Stride-aware conversion functions for proper pitch handling
+	void nv12_to_rgb888_stride(const uint8_t* nv12_data, uint8_t* rgb_data, int width, int height, int stride);
+	void nv12_to_bgr888_stride(const uint8_t* nv12_data, uint8_t* bgr_data, int width, int height, int stride);
+	void yuv420p_to_rgb888_stride(const uint8_t* yuv_data, uint8_t* rgb_data, int width, int height, int stride);
+	void yuv420p_to_bgr888_stride(const uint8_t* yuv_data, uint8_t* bgr_data, int width, int height, int stride);
+
+	// RKNN-specific BGR conversion functions
+	void nv12_to_bgr888_stride_rknn(const uint8_t* nv12_data, uint8_t* bgr_data, int width, int height, int stride);
+	void yuv420p_to_bgr888_stride_rknn(const uint8_t* yuv_data, uint8_t* bgr_data, int width, int height, int stride);
+
 	bool check_rkmpp_decoder_availability(const char* decoder_name);
+	bool validate_hardware_acceleration();
 
 	// MJPEG streaming methods
 	int init_mjpeg_streaming(int port = 8090);
@@ -147,7 +161,10 @@ class FFmpegStreamChannel {
 		output_attrs = nullptr;
 
 		printf("DEBUG: Calling init_rga_drm()\n");
-		init_rga_drm();
+		if (init_rga_drm() != 0) {
+			printf("WARNING: init_rga_drm() failed, hardware acceleration disabled\n");
+			use_software_only = true;
+		}
 		printf("DEBUG: init_rga_drm() completed\n");
 
 		printf("DEBUG: Calling init_rknn2()\n");

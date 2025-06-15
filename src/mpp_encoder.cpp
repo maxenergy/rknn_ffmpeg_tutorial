@@ -18,43 +18,43 @@ void MPPEncoder::cleanup() {
         mpp_packet_deinit(&packet_);
         packet_ = nullptr;
     }
-    
+
     if (frame_) {
         mpp_frame_deinit(&frame_);
         frame_ = nullptr;
     }
-    
+
     if (pkt_buf_) {
         mpp_buffer_put(pkt_buf_);
         pkt_buf_ = nullptr;
     }
-    
+
     if (frm_buf_) {
         mpp_buffer_put(frm_buf_);
         frm_buf_ = nullptr;
     }
-    
+
     if (pkt_grp_) {
         mpp_buffer_group_put(pkt_grp_);
         pkt_grp_ = nullptr;
     }
-    
+
     if (frm_grp_) {
         mpp_buffer_group_put(frm_grp_);
         frm_grp_ = nullptr;
     }
-    
+
     if (cfg_) {
         mpp_enc_cfg_deinit(cfg_);
         cfg_ = nullptr;
     }
-    
+
     if (mpp_ctx_) {
         mpp_destroy(mpp_ctx_);
         mpp_ctx_ = nullptr;
         mpi_ = nullptr;
     }
-    
+
     initialized_ = false;
 }
 
@@ -115,7 +115,7 @@ int MPPEncoder::init(int width, int height, int fps, int bitrate) {
     mpp_enc_cfg_set_s32(cfg_, "rc:fps_out_denorm", 1);
 
     mpp_enc_cfg_set_s32(cfg_, "codec:type", MPP_VIDEO_CodingMJPEG);
-    mpp_enc_cfg_set_s32(cfg_, "jpeg:q_factor", 80);
+    mpp_enc_cfg_set_s32(cfg_, "jpeg:q_factor", 95);  // Increased from 80 to 95 for higher quality
     mpp_enc_cfg_set_s32(cfg_, "jpeg:qf_max", 99);
     mpp_enc_cfg_set_s32(cfg_, "jpeg:qf_min", 1);
 
@@ -220,7 +220,7 @@ int MPPEncoder::convert_mat_to_yuv420(const cv::Mat& bgr_mat, uint8_t* yuv_data)
     uint8_t* u_src = yuv_mat.data + width_ * height_;
     uint8_t* v_src = yuv_mat.data + width_ * height_ + (width_ * height_) / 4;
     uint8_t* uv_dst = yuv_data + hor_stride * ver_stride;
-    
+
     for (int i = 0; i < height_ / 2; i++) {
         for (int j = 0; j < width_ / 2; j++) {
             uv_dst[i * hor_stride + j * 2] = u_src[i * width_ / 2 + j];
@@ -269,10 +269,10 @@ int MPPEncoder::encode_frame(const cv::Mat& frame, std::vector<uint8_t>& jpeg_da
     if (packet_) {
         void* pkt_data = mpp_packet_get_data(packet_);
         size_t pkt_size = mpp_packet_get_length(packet_);
-        
+
         jpeg_data.resize(pkt_size);
         memcpy(jpeg_data.data(), pkt_data, pkt_size);
-        
+
         mpp_packet_deinit(&packet_);
         mpp_packet_init_with_buffer(&packet_, pkt_buf_);
     }
@@ -286,7 +286,7 @@ int MPPEncoder::encode_frame_raw(const uint8_t* bgr_data, int width, int height,
                width_, height_, width, height);
         return -1;
     }
-    
+
     cv::Mat frame(height, width, CV_8UC3, (void*)bgr_data);
     return encode_frame(frame, jpeg_data);
 }

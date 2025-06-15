@@ -205,9 +205,9 @@ int MJPEGStreamer::init(int port, int width, int height) {
     width_ = width;
     height_ = height;
 
-    // Initialize MPP encoder
+    // Initialize MPP encoder with higher bitrate for better quality
     encoder_.reset(new MPPEncoder());
-    if (encoder_->init(width_, height_, 30, 2000000) != 0) {
+    if (encoder_->init(width_, height_, 30, 8000000) != 0) {  // Increased from 2Mbps to 8Mbps
         printf("MJPEG Streamer: Failed to initialize MPP encoder\n");
         return -1;
     }
@@ -313,7 +313,8 @@ void MJPEGStreamer::push_frame_raw(const uint8_t* bgr_data, int width, int heigh
         return;
     }
 
-    cv::Mat frame(height, width, CV_8UC3, (void*)bgr_data);
+    // Validate and potentially correct color format
+    cv::Mat frame = validate_and_correct_color_format(bgr_data, width, height);
     push_frame(frame, detection_results);
 }
 
@@ -345,6 +346,13 @@ void MJPEGStreamer::encoder_worker() {
 
         // Draw detection results on frame
         cv::Mat annotated_frame = draw_detection_results(frame_data.frame, frame_data.detection_results);
+
+        // Save intermediate frames for quality analysis (every 30 frames to avoid spam)
+        static int frame_save_counter = 0;
+        if (frame_save_counter % 30 == 0) {
+            save_debug_frames(frame_data.frame, annotated_frame, frame_save_counter);
+        }
+        frame_save_counter++;
 
         // Encode frame
         auto encode_start = std::chrono::high_resolution_clock::now();
@@ -441,6 +449,105 @@ bool MJPEGStreamer::get_current_jpeg(std::vector<uint8_t>& jpeg_data) {
 
     jpeg_data = current_jpeg_;
     return true;
+}
+
+cv::Mat MJPEGStreamer::validate_and_correct_color_format(const uint8_t* bgr_data, int width, int height) {
+    // Create initial frame assuming BGR format
+    cv::Mat frame(height, width, CV_8UC3, (void*)bgr_data);
+
+    // Sample center pixel for color validation
+    int center_x = width / 2;
+    int center_y = height / 2;
+    cv::Vec3b center_pixel = frame.at<cv::Vec3b>(center_y, center_x);
+
+    // Sample corner pixels for additional validation
+    cv::Vec3b corner_tl = frame.at<cv::Vec3b>(0, 0);
+    cv::Vec3b corner_br = frame.at<cv::Vec3b>(height-1, width-1);
+
+    printf("DEBUG: MJPEG input validation - Center pixel BGR: B=%d, G=%d, R=%d\n",
+           center_pixel[0], center_pixel[1], center_pixel[2]);
+
+    // Detect potential RGB data in BGR buffer
+    // Look for patterns where blue channel has values that seem more like red
+    bool likely_rgb_swapped = false;
+
+    // Check if blue channel values are consistently higher than red (suggesting RGB->BGR swap)
+    int blue_vs_red_diff = center_pixel[0] - center_pixel[2];
+    int corner_blue_vs_red_diff = corner_tl[0] - corner_tl[2];
+
+    if (blue_vs_red_diff > 30 && corner_blue_vs_red_diff > 30) {
+        // Blue significantly higher than red in multiple samples suggests RGB data
+        likely_rgb_swapped = true;
+        printf("WARNING: MJPEG detected likely RGB data in BGR buffer (blue > red by %d)\n", blue_vs_red_diff);
+    }
+
+    // Check for unrealistic color values that might indicate format issues
+    bool has_extreme_values = (center_pixel[0] > 250 && center_pixel[2] < 50) ||
+                             (center_pixel[2] > 250 && center_pixel[0] < 50);
+
+    if (has_extreme_values) {
+        printf("WARNING: MJPEG detected extreme color values - possible format mismatch\n");
+        likely_rgb_swapped = true;
+    }
+
+    if (likely_rgb_swapped) {
+        printf("INFO: MJPEG applying RGB->BGR color correction\n");
+        cv::Mat corrected_frame;
+        cv::cvtColor(frame, corrected_frame, cv::COLOR_RGB2BGR);
+
+        // Verify correction
+        cv::Vec3b corrected_center = corrected_frame.at<cv::Vec3b>(center_y, center_x);
+        printf("DEBUG: MJPEG after correction - Center pixel BGR: B=%d, G=%d, R=%d\n",
+               corrected_center[0], corrected_center[1], corrected_center[2]);
+
+        return corrected_frame;
+    }
+
+    return frame;
+}
+
+void MJPEGStreamer::save_debug_frames(const cv::Mat& original_frame, const cv::Mat& annotated_frame, int frame_number) {
+    try {
+        // Create debug directory if it doesn't exist
+        system("mkdir -p ./debug_frames");
+
+        // Save original frame (before annotation) as high-quality PNG
+        std::string original_filename = "./debug_frames/frame_" + std::to_string(frame_number) + "_original.png";
+        std::vector<int> png_params = {cv::IMWRITE_PNG_COMPRESSION, 0}; // No compression for maximum quality
+        cv::imwrite(original_filename, original_frame, png_params);
+
+        // Save annotated frame (before MJPEG encoding) as high-quality PNG
+        std::string annotated_filename = "./debug_frames/frame_" + std::to_string(frame_number) + "_annotated.png";
+        cv::imwrite(annotated_filename, annotated_frame, png_params);
+
+        // Save annotated frame as high-quality JPEG for comparison
+        std::string jpeg_filename = "./debug_frames/frame_" + std::to_string(frame_number) + "_annotated_hq.jpg";
+        std::vector<int> jpeg_params = {cv::IMWRITE_JPEG_QUALITY, 95}; // High quality JPEG
+        cv::imwrite(jpeg_filename, annotated_frame, jpeg_params);
+
+        // Save annotated frame as lower quality JPEG to simulate MPP encoding
+        std::string jpeg_low_filename = "./debug_frames/frame_" + std::to_string(frame_number) + "_annotated_lq.jpg";
+        std::vector<int> jpeg_low_params = {cv::IMWRITE_JPEG_QUALITY, 70}; // Lower quality similar to MPP
+        cv::imwrite(jpeg_low_filename, annotated_frame, jpeg_low_params);
+
+        printf("DEBUG: Saved frame %d for quality analysis:\n", frame_number);
+        printf("  - Original: %s\n", original_filename.c_str());
+        printf("  - Annotated PNG: %s\n", annotated_filename.c_str());
+        printf("  - Annotated HQ JPEG: %s\n", jpeg_filename.c_str());
+        printf("  - Annotated LQ JPEG: %s\n", jpeg_low_filename.c_str());
+
+        // Print frame properties for analysis
+        printf("  - Frame size: %dx%d, channels: %d, type: %d\n",
+               annotated_frame.cols, annotated_frame.rows, annotated_frame.channels(), annotated_frame.type());
+
+        // Sample pixel values for color verification
+        cv::Vec3b center_pixel = annotated_frame.at<cv::Vec3b>(annotated_frame.rows/2, annotated_frame.cols/2);
+        printf("  - Center pixel BGR: B=%d, G=%d, R=%d\n",
+               center_pixel[0], center_pixel[1], center_pixel[2]);
+
+    } catch (const cv::Exception& e) {
+        printf("ERROR: Failed to save debug frames: %s\n", e.what());
+    }
 }
 
 MJPEGStreamer::StreamStats MJPEGStreamer::get_stats() const {

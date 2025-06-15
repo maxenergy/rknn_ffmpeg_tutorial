@@ -25,6 +25,8 @@ extern "C"
 
     int rknn_img_resize_phy_to_phy(rga_context *rga_ctx, int src_fd, int src_w, int src_h, int src_fmt, uint64_t dst_fd, int dst_w, int dst_h, int dst_fmt);
 
+    int rknn_img_resize_phy_to_phy_stride(rga_context *rga_ctx, int src_fd, int src_w, int src_h, int src_stride, int src_fmt, uint64_t dst_fd, int dst_w, int dst_h, int dst_fmt);
+
     int rknn_img_resize_phy_to_virt(rga_context *rga_ctx, int src_fd, int src_w, int src_h, int src_fmt, void *dst_virt, int dst_w, int dst_h, int dst_fmt);
 
     int rknn_img_resize_virt_to_phy(rga_context *rga_ctx, void *src_virt, int src_w, int src_h, int src_fmt, uint64_t dst_fd, int dst_w, int dst_h, int dst_fmt);
