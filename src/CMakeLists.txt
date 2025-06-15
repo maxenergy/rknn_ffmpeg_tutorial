@@ -32,7 +32,10 @@ set(CMAKE_CXX_FLAGS "-Wno-attributes -Wno-write-strings -Wno-deprecated-declarat
 # Use system library paths
 set(CMAKE_EXE_LINKER_FLAGS "-Wl,-rpath=/usr/lib/aarch64-linux-gnu ${CMAKE_EXE_LINKER_FLAGS}")
 
-aux_source_directory(. SRC_LIST)
+# Get all source files except main programs
+file(GLOB SRC_LIST "*.cpp")
+list(REMOVE_ITEM SRC_LIST "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
+list(REMOVE_ITEM SRC_LIST "${CMAKE_CURRENT_SOURCE_DIR}/multi_stream_main.cpp")
 
 # Find system packages
 find_package(PkgConfig REQUIRED)
@@ -58,21 +61,24 @@ link_directories(/usr/lib)
 # Include system headers for Rockchip libraries
 include_directories(/usr/include/rga)
 
-add_executable(ffmpeg_tutorial ${SRC_LIST})
+# Single stream executable
+add_executable(ffmpeg_tutorial ${SRC_LIST} main.cpp)
 
-# Link system OpenCV libraries
+# Multi-stream executable
+add_executable(multi_stream_tutorial ${SRC_LIST} multi_stream_main.cpp)
+
+# Link libraries for single stream executable
 target_link_libraries(ffmpeg_tutorial ${OpenCV_LIBS})
-
-# Link system FFmpeg libraries
 target_link_libraries(ffmpeg_tutorial ${LIBAV_LIBRARIES})
-
-# Link Rockchip hardware acceleration libraries (system installed)
 target_link_libraries(ffmpeg_tutorial rga drm rknn_api)
-
-# Link MPP (Media Process Platform) for hardware MJPEG encoding
 target_link_libraries(ffmpeg_tutorial rockchip_mpp)
-
-# Link system libraries
 target_link_libraries(ffmpeg_tutorial pthread dl GL)
 
-INSTALL(TARGETS ffmpeg_tutorial DESTINATION bin)
+# Link libraries for multi-stream executable
+target_link_libraries(multi_stream_tutorial ${OpenCV_LIBS})
+target_link_libraries(multi_stream_tutorial ${LIBAV_LIBRARIES})
+target_link_libraries(multi_stream_tutorial rga drm rknn_api)
+target_link_libraries(multi_stream_tutorial rockchip_mpp)
+target_link_libraries(multi_stream_tutorial pthread dl GL)
+
+INSTALL(TARGETS ffmpeg_tutorial multi_stream_tutorial DESTINATION bin)

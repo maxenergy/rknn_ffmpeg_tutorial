@@ -138,6 +138,9 @@ class FFmpegStreamChannel {
 	void start_mjpeg_streaming();
 	void stop_mjpeg_streaming();
 
+	// Multi-stream support
+	bool init_for_multi_stream(int mjpeg_port);
+
 	/* opencv */
 	std::string window_name;
 	GLuint image_texture;

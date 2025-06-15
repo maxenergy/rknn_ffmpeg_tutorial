@@ -44,6 +44,7 @@ private:
     void send_mjpeg_stream(int client_fd);
     void send_http_response(int client_fd, const std::string& content_type, const std::string& content);
     void send_index_page(int client_fd);
+    void send_multi_stream_page(int client_fd);
 };
 
 // Frame data structure for thread-safe communication
@@ -131,7 +132,6 @@ private:
     // Frame processing
     cv::Mat draw_detection_results(const cv::Mat& frame, const detect_result_group_t& results);
     cv::Mat validate_and_correct_color_format(const uint8_t* bgr_data, int width, int height);
-    void save_debug_frames(const cv::Mat& original_frame, const cv::Mat& annotated_frame, int frame_number);
 
     // MJPEG provider for HTTP server
     bool get_current_jpeg(std::vector<uint8_t>& jpeg_data);

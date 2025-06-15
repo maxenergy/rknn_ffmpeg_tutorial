@@ -1772,3 +1772,22 @@ void FFmpegStreamChannel::stop_mjpeg_streaming() {
 		printf("MJPEG streaming stopped\n");
 	}
 }
+
+bool FFmpegStreamChannel::init_for_multi_stream(int mjpeg_port) {
+	printf("Initializing channel for multi-stream on port %d\n", mjpeg_port);
+
+	// Stop any existing MJPEG streaming
+	stop_mjpeg_streaming();
+
+	// Initialize MJPEG streaming on the specified port
+	if (init_mjpeg_streaming(mjpeg_port) != 0) {
+		printf("ERROR: Failed to initialize MJPEG streaming on port %d\n", mjpeg_port);
+		return false;
+	}
+
+	// Start MJPEG streaming
+	start_mjpeg_streaming();
+
+	printf("Multi-stream channel initialized successfully on port %d\n", mjpeg_port);
+	return true;
+}

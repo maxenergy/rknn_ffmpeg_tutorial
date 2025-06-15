@@ -121,6 +121,8 @@ void SimpleHTTPServer::handle_client(int client_fd) {
         // Basic stats response - can be enhanced
         stats_response = "{\"status\":\"running\",\"clients\":1}";
         send_http_response(client_fd, "application/json", stats_response);
+    } else if (request.find("GET /multi") != std::string::npos) {
+        send_multi_stream_page(client_fd);
     } else {
         send_index_page(client_fd);
     }
@@ -189,6 +191,230 @@ void SimpleHTTPServer::send_index_page(int client_fd) {
     send_http_response(client_fd, "text/html", html);
 }
 
+void SimpleHTTPServer::send_multi_stream_page(int client_fd) {
+    std::string html =
+        "<!DOCTYPE html>\n"
+        "<html>\n"
+        "<head>\n"
+        "    <title>Multi-Stream Object Detection Dashboard</title>\n"
+        "    <meta charset=\"UTF-8\">\n"
+        "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+        "    <style>\n"
+        "        body {\n"
+        "            margin: 0;\n"
+        "            padding: 20px;\n"
+        "            font-family: Arial, sans-serif;\n"
+        "            background-color: #1a1a1a;\n"
+        "            color: white;\n"
+        "        }\n"
+        "        .header {\n"
+        "            text-align: center;\n"
+        "            margin-bottom: 20px;\n"
+        "        }\n"
+        "        .grid-container {\n"
+        "            display: grid;\n"
+        "            grid-template-columns: repeat(4, 1fr);\n"
+        "            grid-template-rows: repeat(2, 1fr);\n"
+        "            gap: 10px;\n"
+        "            height: calc(100vh - 120px);\n"
+        "            max-width: 1920px;\n"
+        "            margin: 0 auto;\n"
+        "        }\n"
+        "        .stream-container {\n"
+        "            position: relative;\n"
+        "            background-color: #2a2a2a;\n"
+        "            border: 2px solid #444;\n"
+        "            border-radius: 8px;\n"
+        "            overflow: hidden;\n"
+        "            transition: transform 0.2s, border-color 0.2s;\n"
+        "        }\n"
+        "        .stream-container:hover {\n"
+        "            transform: scale(1.02);\n"
+        "            border-color: #0066cc;\n"
+        "        }\n"
+        "        .stream-container.fullscreen {\n"
+        "            position: fixed;\n"
+        "            top: 0;\n"
+        "            left: 0;\n"
+        "            width: 100vw;\n"
+        "            height: 100vh;\n"
+        "            z-index: 1000;\n"
+        "            transform: none;\n"
+        "            border-radius: 0;\n"
+        "        }\n"
+        "        .stream-image {\n"
+        "            width: 100%;\n"
+        "            height: calc(100% - 40px);\n"
+        "            object-fit: contain;\n"
+        "            background-color: #000;\n"
+        "        }\n"
+        "        .stream-label {\n"
+        "            position: absolute;\n"
+        "            bottom: 0;\n"
+        "            left: 0;\n"
+        "            right: 0;\n"
+        "            background: linear-gradient(transparent, rgba(0,0,0,0.8));\n"
+        "            color: white;\n"
+        "            padding: 10px;\n"
+        "            text-align: center;\n"
+        "            font-size: 14px;\n"
+        "            font-weight: bold;\n"
+        "        }\n"
+        "        .status-indicator {\n"
+        "            position: absolute;\n"
+        "            top: 10px;\n"
+        "            right: 10px;\n"
+        "            width: 12px;\n"
+        "            height: 12px;\n"
+        "            border-radius: 50%;\n"
+        "            background-color: #00ff00;\n"
+        "            box-shadow: 0 0 10px rgba(0,255,0,0.5);\n"
+        "        }\n"
+        "        .controls {\n"
+        "            text-align: center;\n"
+        "            margin-top: 20px;\n"
+        "        }\n"
+        "        .btn {\n"
+        "            background-color: #0066cc;\n"
+        "            color: white;\n"
+        "            border: none;\n"
+        "            padding: 10px 20px;\n"
+        "            margin: 0 5px;\n"
+        "            border-radius: 5px;\n"
+        "            cursor: pointer;\n"
+        "            font-size: 14px;\n"
+        "        }\n"
+        "        .btn:hover {\n"
+        "            background-color: #0052a3;\n"
+        "        }\n"
+        "        @media (max-width: 1200px) {\n"
+        "            .grid-container {\n"
+        "                grid-template-columns: repeat(2, 1fr);\n"
+        "                grid-template-rows: repeat(4, 1fr);\n"
+        "            }\n"
+        "        }\n"
+        "        @media (max-width: 768px) {\n"
+        "            .grid-container {\n"
+        "                grid-template-columns: 1fr;\n"
+        "                grid-template-rows: repeat(8, 200px);\n"
+        "                height: auto;\n"
+        "            }\n"
+        "        }\n"
+        "    </style>\n"
+        "</head>\n"
+        "<body>\n"
+        "    <div class=\"header\">\n"
+        "        <h1>🎥 Multi-Stream Object Detection Dashboard</h1>\n"
+        "        <p>Real-time AI-powered object detection across 8 video streams</p>\n"
+        "    </div>\n"
+        "\n"
+        "    <div class=\"grid-container\" id=\"gridContainer\">\n"
+        "        <div class=\"stream-container\" onclick=\"toggleFullscreen(this)\">\n"
+        "            <div class=\"status-indicator\"></div>\n"
+        "            <img class=\"stream-image\" src=\"http://localhost:8090/mjpeg\" alt=\"Stream 1\">\n"
+        "            <div class=\"stream-label\">Stream 1 - /userdata/videos/2.mp4</div>\n"
+        "        </div>\n"
+        "        <div class=\"stream-container\" onclick=\"toggleFullscreen(this)\">\n"
+        "            <div class=\"status-indicator\"></div>\n"
+        "            <img class=\"stream-image\" src=\"http://localhost:8091/mjpeg\" alt=\"Stream 2\">\n"
+        "            <div class=\"stream-label\">Stream 2 - /userdata/videos/3.mp4</div>\n"
+        "        </div>\n"
+        "        <div class=\"stream-container\" onclick=\"toggleFullscreen(this)\">\n"
+        "            <div class=\"status-indicator\"></div>\n"
+        "            <img class=\"stream-image\" src=\"http://localhost:8092/mjpeg\" alt=\"Stream 3\">\n"
+        "            <div class=\"stream-label\">Stream 3 - /userdata/videos/4.mp4</div>\n"
+        "        </div>\n"
+        "        <div class=\"stream-container\" onclick=\"toggleFullscreen(this)\">\n"
+        "            <div class=\"status-indicator\"></div>\n"
+        "            <img class=\"stream-image\" src=\"http://localhost:8093/mjpeg\" alt=\"Stream 4\">\n"
+        "            <div class=\"stream-label\">Stream 4 - /userdata/videos/5.mp4</div>\n"
+        "        </div>\n"
+        "        <div class=\"stream-container\" onclick=\"toggleFullscreen(this)\">\n"
+        "            <div class=\"status-indicator\"></div>\n"
+        "            <img class=\"stream-image\" src=\"http://localhost:8094/mjpeg\" alt=\"Stream 5\">\n"
+        "            <div class=\"stream-label\">Stream 5 - /userdata/videos/6.mp4</div>\n"
+        "        </div>\n"
+        "        <div class=\"stream-container\" onclick=\"toggleFullscreen(this)\">\n"
+        "            <div class=\"status-indicator\"></div>\n"
+        "            <img class=\"stream-image\" src=\"http://localhost:8095/mjpeg\" alt=\"Stream 6\">\n"
+        "            <div class=\"stream-label\">Stream 6 - /userdata/videos/7.mp4</div>\n"
+        "        </div>\n"
+        "        <div class=\"stream-container\" onclick=\"toggleFullscreen(this)\">\n"
+        "            <div class=\"status-indicator\"></div>\n"
+        "            <img class=\"stream-image\" src=\"http://localhost:8096/mjpeg\" alt=\"Stream 7\">\n"
+        "            <div class=\"stream-label\">Stream 7 - /userdata/videos/8.mp4</div>\n"
+        "        </div>\n"
+        "        <div class=\"stream-container\" onclick=\"toggleFullscreen(this)\">\n"
+        "            <div class=\"status-indicator\"></div>\n"
+        "            <img class=\"stream-image\" src=\"http://localhost:8097/mjpeg\" alt=\"Stream 8\">\n"
+        "            <div class=\"stream-label\">Stream 8 - /userdata/videos/9.mp4</div>\n"
+        "        </div>\n"
+        "    </div>\n"
+        "\n"
+        "    <div class=\"controls\">\n"
+        "        <button class=\"btn\" onclick=\"refreshAllStreams()\">🔄 Refresh All</button>\n"
+        "        <button class=\"btn\" onclick=\"toggleGrid()\">📐 Toggle Layout</button>\n"
+        "        <button class=\"btn\" onclick=\"window.location.href='/stats'\">📊 Statistics</button>\n"
+        "    </div>\n"
+        "\n"
+        "    <script>\n"
+        "        let isGridMode = true;\n"
+        "        \n"
+        "        function toggleFullscreen(container) {\n"
+        "            if (container.classList.contains('fullscreen')) {\n"
+        "                container.classList.remove('fullscreen');\n"
+        "                document.body.style.overflow = 'auto';\n"
+        "            } else {\n"
+        "                // Remove fullscreen from any other container\n"
+        "                document.querySelectorAll('.stream-container.fullscreen').forEach(c => {\n"
+        "                    c.classList.remove('fullscreen');\n"
+        "                });\n"
+        "                container.classList.add('fullscreen');\n"
+        "                document.body.style.overflow = 'hidden';\n"
+        "            }\n"
+        "        }\n"
+        "        \n"
+        "        function refreshAllStreams() {\n"
+        "            document.querySelectorAll('.stream-image').forEach(img => {\n"
+        "                const src = img.src;\n"
+        "                img.src = '';\n"
+        "                setTimeout(() => { img.src = src; }, 100);\n"
+        "            });\n"
+        "        }\n"
+        "        \n"
+        "        function toggleGrid() {\n"
+        "            const container = document.getElementById('gridContainer');\n"
+        "            if (isGridMode) {\n"
+        "                container.style.gridTemplateColumns = 'repeat(2, 1fr)';\n"
+        "                container.style.gridTemplateRows = 'repeat(4, 1fr)';\n"
+        "            } else {\n"
+        "                container.style.gridTemplateColumns = 'repeat(4, 1fr)';\n"
+        "                container.style.gridTemplateRows = 'repeat(2, 1fr)';\n"
+        "            }\n"
+        "            isGridMode = !isGridMode;\n"
+        "        }\n"
+        "        \n"
+        "        // Close fullscreen on Escape key\n"
+        "        document.addEventListener('keydown', function(e) {\n"
+        "            if (e.key === 'Escape') {\n"
+        "                document.querySelectorAll('.stream-container.fullscreen').forEach(c => {\n"
+        "                    c.classList.remove('fullscreen');\n"
+        "                });\n"
+        "                document.body.style.overflow = 'auto';\n"
+        "            }\n"
+        "        });\n"
+        "        \n"
+        "        // Auto-refresh page every 30 seconds to handle connection issues\n"
+        "        setTimeout(() => {\n"
+        "            location.reload();\n"
+        "        }, 30000);\n"
+        "    </script>\n"
+        "</body>\n"
+        "</html>";
+
+    send_http_response(client_fd, "text/html", html);
+}
+
 // MJPEGStreamer implementation
 MJPEGStreamer::MJPEGStreamer()
     : server_(nullptr), encoder_(nullptr), port_(8090), width_(1280), height_(720),
@@ -242,8 +468,8 @@ int MJPEGStreamer::start() {
     }
 
     printf("MJPEG Streamer started on port %d\n", port_);
-    printf("Access the stream at: http://localhost:%d/mjpeg\n", port_);
-    printf("View web interface at: http://localhost:%d/\n", port_);
+    printf("Access the stream at: http://0.0.0.0:%d/mjpeg (or use your server IP)\n", port_);
+    printf("View web interface at: http://0.0.0.0:%d/ (or use your server IP)\n", port_);
 
     return 0;
 }
@@ -346,13 +572,6 @@ void MJPEGStreamer::encoder_worker() {
 
         // Draw detection results on frame
         cv::Mat annotated_frame = draw_detection_results(frame_data.frame, frame_data.detection_results);
-
-        // Save intermediate frames for quality analysis (every 30 frames to avoid spam)
-        static int frame_save_counter = 0;
-        if (frame_save_counter % 30 == 0) {
-            save_debug_frames(frame_data.frame, annotated_frame, frame_save_counter);
-        }
-        frame_save_counter++;
 
         // Encode frame
         auto encode_start = std::chrono::high_resolution_clock::now();
@@ -506,49 +725,7 @@ cv::Mat MJPEGStreamer::validate_and_correct_color_format(const uint8_t* bgr_data
     return frame;
 }
 
-void MJPEGStreamer::save_debug_frames(const cv::Mat& original_frame, const cv::Mat& annotated_frame, int frame_number) {
-    try {
-        // Create debug directory if it doesn't exist
-        system("mkdir -p ./debug_frames");
-
-        // Save original frame (before annotation) as high-quality PNG
-        std::string original_filename = "./debug_frames/frame_" + std::to_string(frame_number) + "_original.png";
-        std::vector<int> png_params = {cv::IMWRITE_PNG_COMPRESSION, 0}; // No compression for maximum quality
-        cv::imwrite(original_filename, original_frame, png_params);
-
-        // Save annotated frame (before MJPEG encoding) as high-quality PNG
-        std::string annotated_filename = "./debug_frames/frame_" + std::to_string(frame_number) + "_annotated.png";
-        cv::imwrite(annotated_filename, annotated_frame, png_params);
-
-        // Save annotated frame as high-quality JPEG for comparison
-        std::string jpeg_filename = "./debug_frames/frame_" + std::to_string(frame_number) + "_annotated_hq.jpg";
-        std::vector<int> jpeg_params = {cv::IMWRITE_JPEG_QUALITY, 95}; // High quality JPEG
-        cv::imwrite(jpeg_filename, annotated_frame, jpeg_params);
-
-        // Save annotated frame as lower quality JPEG to simulate MPP encoding
-        std::string jpeg_low_filename = "./debug_frames/frame_" + std::to_string(frame_number) + "_annotated_lq.jpg";
-        std::vector<int> jpeg_low_params = {cv::IMWRITE_JPEG_QUALITY, 70}; // Lower quality similar to MPP
-        cv::imwrite(jpeg_low_filename, annotated_frame, jpeg_low_params);
-
-        printf("DEBUG: Saved frame %d for quality analysis:\n", frame_number);
-        printf("  - Original: %s\n", original_filename.c_str());
-        printf("  - Annotated PNG: %s\n", annotated_filename.c_str());
-        printf("  - Annotated HQ JPEG: %s\n", jpeg_filename.c_str());
-        printf("  - Annotated LQ JPEG: %s\n", jpeg_low_filename.c_str());
-
-        // Print frame properties for analysis
-        printf("  - Frame size: %dx%d, channels: %d, type: %d\n",
-               annotated_frame.cols, annotated_frame.rows, annotated_frame.channels(), annotated_frame.type());
-
-        // Sample pixel values for color verification
-        cv::Vec3b center_pixel = annotated_frame.at<cv::Vec3b>(annotated_frame.rows/2, annotated_frame.cols/2);
-        printf("  - Center pixel BGR: B=%d, G=%d, R=%d\n",
-               center_pixel[0], center_pixel[1], center_pixel[2]);
-
-    } catch (const cv::Exception& e) {
-        printf("ERROR: Failed to save debug frames: %s\n", e.what());
-    }
-}
+// Debug frame saving function removed for production use
 
 MJPEGStreamer::StreamStats MJPEGStreamer::get_stats() const {
     StreamStats stats;
