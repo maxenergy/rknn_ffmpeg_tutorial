@@ -570,8 +570,8 @@ bool FFmpegStreamChannel::decode(const char *input_stream_url)
 
 			ret = avcodec_send_packet(codec_ctx_input_video, packet_input_tmp);
 			if (ret < 0) {
-				printf("avcodec_send_packet filed: %d\n", ret);
-				return false;
+				printf("avcodec_send_packet failed: %d (recoverable error, skipping packet...)\n", ret);
+				continue;  // Skip this packet and continue with next
 			}
 
 			while (ret >= 0) {
@@ -579,8 +579,8 @@ bool FFmpegStreamChannel::decode(const char *input_stream_url)
 				if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
 					break;
 				} else if (ret < 0) {
-					printf("avcodec_receive_frame filed: %d\n", ret);
-					return false;
+					printf("avcodec_receive_frame failed: %d (recoverable error, continuing...)\n", ret);
+					break;  // Break from inner loop but continue processing
 				}
 
 				// Handle different frame formats with detailed debugging
@@ -732,6 +732,14 @@ bool FFmpegStreamChannel::decode(const char *input_stream_url)
 				}
 				printf("DRAW BOX OK---->[%fms]\n", ((double)(current_timestamp() - ts_mark)) / 1000);
 
+				/* MJPEG Streaming */
+				if (mjpeg_streamer_ && mjpeg_streamer_->is_running()) {
+					// Push frame to MJPEG streamer with detection results
+					mjpeg_streamer_->push_frame_raw((uint8_t*)drm_buf_for_rga2.drm_buf_ptr,
+													display_width_, display_height_,
+													detect_result_group);
+				}
+
 				/* Free Outputs */
 				rknn_outputs_release(rknn_ctx, io_num.n_output, outputs);
 
@@ -770,11 +778,54 @@ void FFmpegStreamChannel::stop_processing() {
 	printf("Stop processing requested\n");
 }
 
+void FFmpegStreamChannel::cleanup_ffmpeg_contexts() {
+	printf("Cleaning up FFmpeg contexts...\n");
+
+	// Close codec contexts
+	if (codec_ctx_input_video) {
+		avcodec_close(codec_ctx_input_video);
+		avcodec_free_context(&codec_ctx_input_video);
+		codec_ctx_input_video = nullptr;
+	}
+
+	if (codec_ctx_input_audio) {
+		avcodec_close(codec_ctx_input_audio);
+		avcodec_free_context(&codec_ctx_input_audio);
+		codec_ctx_input_audio = nullptr;
+	}
+
+	// Close format context
+	if (format_context_input) {
+		avformat_close_input(&format_context_input);
+		format_context_input = nullptr;
+	}
+
+	// Reset stream indices
+	video_stream_index_input = -1;
+	audio_stream_index_input = -1;
+
+	// Reset codec pointers
+	codec_input_video = nullptr;
+	codec_input_audio = nullptr;
+
+	printf("FFmpeg contexts cleaned up\n");
+}
+
 bool FFmpegStreamChannel::decode_continuous(const char *input_stream_url) {
 	printf("Starting continuous decode for: %s\n", input_stream_url);
 
+	int restart_count = 0;
+	int consecutive_failures = 0;
+	const int max_consecutive_failures = 5;
+
 	while (!should_stop_processing) {
-		printf("=== Starting video processing session ===\n");
+		restart_count++;
+		printf("=== Starting video processing session #%d ===\n", restart_count);
+
+		// Clean up any existing contexts before starting (skip on first run)
+		if (restart_count > 1) {
+			cleanup_ffmpeg_contexts();
+		}
 
 		bool success = decode(input_stream_url);
 
@@ -784,16 +835,65 @@ bool FFmpegStreamChannel::decode_continuous(const char *input_stream_url) {
 		}
 
 		if (success) {
-			printf("Video processing completed normally, restarting...\n");
+			printf("Video processing completed normally (session #%d), restarting...\n", restart_count);
+			consecutive_failures = 0;  // Reset failure counter on success
 		} else {
-			printf("Video processing failed, retrying in 2 seconds...\n");
+			consecutive_failures++;
+			printf("Video processing failed (session #%d, failure #%d/%d), retrying in 2 seconds...\n",
+				   restart_count, consecutive_failures, max_consecutive_failures);
+
+			if (consecutive_failures >= max_consecutive_failures) {
+				printf("ERROR: Too many consecutive failures (%d), stopping continuous processing\n", consecutive_failures);
+				break;
+			}
+
 			std::this_thread::sleep_for(std::chrono::seconds(2));
 		}
 
-		// Brief pause between restarts
-		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		// Brief pause between restarts to prevent rapid cycling
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
 	}
 
-	printf("Continuous decode terminated\n");
+	// Final cleanup
+	cleanup_ffmpeg_contexts();
+	printf("Continuous decode terminated after %d sessions\n", restart_count);
 	return true;
+}
+
+// MJPEG streaming methods
+int FFmpegStreamChannel::init_mjpeg_streaming(int port) {
+	if (!enable_mjpeg_streaming_) {
+		return 0;
+	}
+
+	mjpeg_streamer_.reset(new MJPEGStreamer());
+	if (mjpeg_streamer_->init(port, display_width_, display_height_) != 0) {
+		printf("Failed to initialize MJPEG streamer\n");
+		mjpeg_streamer_.reset();
+		return -1;
+	}
+
+	printf("MJPEG streamer initialized on port %d\n", port);
+	return 0;
+}
+
+void FFmpegStreamChannel::start_mjpeg_streaming() {
+	if (!mjpeg_streamer_) {
+		return;
+	}
+
+	if (mjpeg_streamer_->start() != 0) {
+		printf("Failed to start MJPEG streamer\n");
+		mjpeg_streamer_.reset();
+	} else {
+		printf("MJPEG streaming started successfully\n");
+	}
+}
+
+void FFmpegStreamChannel::stop_mjpeg_streaming() {
+	if (mjpeg_streamer_) {
+		mjpeg_streamer_->stop();
+		mjpeg_streamer_.reset();
+		printf("MJPEG streaming stopped\n");
+	}
 }

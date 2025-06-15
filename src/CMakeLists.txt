@@ -69,6 +69,9 @@ target_link_libraries(ffmpeg_tutorial ${LIBAV_LIBRARIES})
 # Link Rockchip hardware acceleration libraries (system installed)
 target_link_libraries(ffmpeg_tutorial rga drm rknn_api)
 
+# Link MPP (Media Process Platform) for hardware MJPEG encoding
+target_link_libraries(ffmpeg_tutorial rockchip_mpp)
+
 # Link system libraries
 target_link_libraries(ffmpeg_tutorial pthread dl GL)
 

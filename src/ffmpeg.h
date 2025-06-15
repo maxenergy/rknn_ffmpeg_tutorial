@@ -53,6 +53,7 @@ extern "C" {
 #include "config.h"
 #include "drm_func.h"
 #include "rga_func.h"
+#include "mjpeg_streamer.h"
 
 class FFmpegStreamChannel {
     public:
@@ -86,9 +87,14 @@ class FFmpegStreamChannel {
 	int rknn_width_ = 640;          // Will be set from model
 	int rknn_height_ = 640;         // Will be set from model
 
+	// MJPEG streaming
+	std::unique_ptr<MJPEGStreamer> mjpeg_streamer_;
+	bool enable_mjpeg_streaming_ = true;
+
 	bool decode(const char *);
 	bool decode_continuous(const char *);
 	void stop_processing();
+	void cleanup_ffmpeg_contexts();
 
 	// Processing control
 	std::atomic<bool> should_stop_processing{false};
@@ -113,6 +119,11 @@ class FFmpegStreamChannel {
 	void yuv420p_to_bgr888(const uint8_t* yuv_data, uint8_t* bgr_data, int width, int height);
 	bool check_rkmpp_decoder_availability(const char* decoder_name);
 
+	// MJPEG streaming methods
+	int init_mjpeg_streaming(int port = 8090);
+	void start_mjpeg_streaming();
+	void stop_mjpeg_streaming();
+
 	/* opencv */
 	std::string window_name;
 	GLuint image_texture;
@@ -124,6 +135,16 @@ class FFmpegStreamChannel {
 		printf("DEBUG: Starting FFmpegStreamChannel constructor\n");
 		printf("DEBUG: Initial dimensions - display: %dx%d, rknn: %dx%d\n",
 			   display_width_, display_height_, rknn_width_, rknn_height_);
+
+		// Initialize FFmpeg pointers to nullptr
+		format_context_input = nullptr;
+		codec_ctx_input_video = nullptr;
+		codec_ctx_input_audio = nullptr;
+		codec_input_video = nullptr;
+		codec_input_audio = nullptr;
+		video_stream_index_input = -1;
+		audio_stream_index_input = -1;
+		output_attrs = nullptr;
 
 		printf("DEBUG: Calling init_rga_drm()\n");
 		init_rga_drm();
@@ -143,6 +164,14 @@ class FFmpegStreamChannel {
 			printf("RGA hardware acceleration ENABLED with software fallback\n");
 		}
 
+		// Initialize MJPEG streaming
+		if (enable_mjpeg_streaming_) {
+			printf("DEBUG: Initializing MJPEG streaming\n");
+			init_mjpeg_streaming();
+			start_mjpeg_streaming();
+			printf("DEBUG: MJPEG streaming initialized\n");
+		}
+
 		printf("DEBUG: Final dimensions - display: %dx%d, rknn: %dx%d\n",
 			   display_width_, display_height_, rknn_width_, rknn_height_);
 		printf("DEBUG: FFmpegStreamChannel constructor completed\n");
@@ -150,7 +179,12 @@ class FFmpegStreamChannel {
 
 	~FFmpegStreamChannel()
 	{
-		free(output_attrs);
+		stop_mjpeg_streaming();
+		cleanup_ffmpeg_contexts();
+		if (output_attrs) {
+			free(output_attrs);
+			output_attrs = nullptr;
+		}
 	}
 };
 

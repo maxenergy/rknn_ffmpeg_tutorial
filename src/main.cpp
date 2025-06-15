@@ -22,11 +22,20 @@ long long current_timestamp()
 	return milliseconds;
 }
 
+// Global channel pointer for signal handling
+FFmpegStreamChannel *g_channel = nullptr;
+
 static void signal_process(int signo)
 {
+	printf("\nReceived signal %d, shutting down gracefully...\n", signo);
 	g_flag_run = false;
-	sleep(1);
 
+	if (g_channel) {
+		g_channel->stop_processing();
+	}
+
+	// Give some time for cleanup
+	sleep(2);
 	exit(0);
 }
 
@@ -44,11 +53,17 @@ int main(int argc, char *argv[])
 
 	printf("DEBUG: Creating FFmpegStreamChannel\n");
 	FFmpegStreamChannel *channel = new FFmpegStreamChannel();
-	printf("DEBUG: Channel created, starting decode with: %s\n", argv[1]);
+	g_channel = channel;  // Set global pointer for signal handling
 
-	bool result = channel->decode(argv[1]);
-	printf("DEBUG: Decode completed with result: %s\n", result ? "success" : "failure");
+	printf("DEBUG: Channel created, starting continuous decode with: %s\n", argv[1]);
+	printf("INFO: MJPEG stream will be available at http://localhost:8090/mjpeg\n");
+	printf("INFO: Web interface available at http://localhost:8090/\n");
+	printf("INFO: Press Ctrl+C to stop gracefully\n\n");
 
+	bool result = channel->decode_continuous(argv[1]);
+	printf("DEBUG: Continuous decode completed with result: %s\n", result ? "success" : "failure");
+
+	g_channel = nullptr;
 	delete channel;
 	return result ? 0 : -1;
 }
