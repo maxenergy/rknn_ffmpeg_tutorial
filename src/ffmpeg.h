@@ -11,6 +11,8 @@
 #include <string.h>
 #include <string>
 #include <iostream>
+#include <atomic>
+#include <memory>
 #include <sys/ioctl.h>
 #include <cstdio>
 #include <sys/mman.h>
@@ -74,7 +76,22 @@ class FFmpegStreamChannel {
 	rga_context rga_ctx;
 	struct drm_buf drm_buf_for_rga1;
 	struct drm_buf drm_buf_for_rga2;
+
+	// Hardware acceleration control
+	bool use_software_only = !ENABLE_RGA_HARDWARE;
+
+	// Dimension member variables to prevent corruption
+	int display_width_ = WIDTH_P;   // 1280
+	int display_height_ = HEIGHT_P; // 720
+	int rknn_width_ = 640;          // Will be set from model
+	int rknn_height_ = 640;         // Will be set from model
+
 	bool decode(const char *);
+	bool decode_continuous(const char *);
+	void stop_processing();
+
+	// Processing control
+	std::atomic<bool> should_stop_processing{false};
 
 	/* rknn */
 	const float nms_threshold = NMS_THRESH;
@@ -89,6 +106,13 @@ class FFmpegStreamChannel {
 	int init_rga_drm();
 	int init_rknn2();
 
+	// Hardware acceleration helper functions
+	int process_frame_hardware(int fd, int src_w, int src_h);
+	int process_frame_software_fallback(AVFrame* frame, int src_w, int src_h);
+	void yuv420p_to_rgb888(const uint8_t* yuv_data, uint8_t* rgb_data, int width, int height);
+	void yuv420p_to_bgr888(const uint8_t* yuv_data, uint8_t* bgr_data, int width, int height);
+	bool check_rkmpp_decoder_availability(const char* decoder_name);
+
 	/* opencv */
 	std::string window_name;
 	GLuint image_texture;
@@ -97,11 +121,31 @@ class FFmpegStreamChannel {
 
 	FFmpegStreamChannel()
 	{
+		printf("DEBUG: Starting FFmpegStreamChannel constructor\n");
+		printf("DEBUG: Initial dimensions - display: %dx%d, rknn: %dx%d\n",
+			   display_width_, display_height_, rknn_width_, rknn_height_);
+
+		printf("DEBUG: Calling init_rga_drm()\n");
 		init_rga_drm();
+		printf("DEBUG: init_rga_drm() completed\n");
 
+		printf("DEBUG: Calling init_rknn2()\n");
 		init_rknn2();
+		printf("DEBUG: init_rknn2() completed\n");
 
+		printf("DEBUG: Calling init_window()\n");
 		init_window();
+		printf("DEBUG: init_window() completed\n");
+
+		if (use_software_only) {
+			printf("RGA hardware acceleration DISABLED - using software-only processing\n");
+		} else {
+			printf("RGA hardware acceleration ENABLED with software fallback\n");
+		}
+
+		printf("DEBUG: Final dimensions - display: %dx%d, rknn: %dx%d\n",
+			   display_width_, display_height_, rknn_width_, rknn_height_);
+		printf("DEBUG: FFmpegStreamChannel constructor completed\n");
 	}
 
 	~FFmpegStreamChannel()

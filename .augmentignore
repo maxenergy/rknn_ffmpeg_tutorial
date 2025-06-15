@@ -6,6 +6,6 @@ bin
 *.avi
 build
 target
-src/build/
+src/build
 detections/
 *.log

@@ -32,9 +32,23 @@ static void signal_process(int signo)
 
 int main(int argc, char *argv[])
 {
+	printf("DEBUG: Starting main function\n");
 	signal(SIGINT, signal_process);
 	signal(SIGPIPE, SIG_IGN);
 
+	if (argc < 2) {
+		printf("Usage: %s <stream_url>\n", argv[0]);
+		printf("Example: %s rtsp://example.com/stream\n", argv[0]);
+		return -1;
+	}
+
+	printf("DEBUG: Creating FFmpegStreamChannel\n");
 	FFmpegStreamChannel *channel = new FFmpegStreamChannel();
-	channel->decode(argv[1]);
+	printf("DEBUG: Channel created, starting decode with: %s\n", argv[1]);
+
+	bool result = channel->decode(argv[1]);
+	printf("DEBUG: Decode completed with result: %s\n", result ? "success" : "failure");
+
+	delete channel;
+	return result ? 0 : -1;
 }
